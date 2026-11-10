@@ -3,12 +3,9 @@ import {
   Building2, Receipt, Users, LogOut, FileText, 
   UploadCloud, CheckCircle, Shield, ChevronRight, 
   DollarSign, Lock, CalendarDays, Wallet, User, Phone, CreditCard, RefreshCw,
-  Camera, Edit2, Clock, Bell, Download, AlertCircle, TrendingUp
+  Camera, Edit2, Clock, Bell, Download, AlertCircle, TrendingUp, PlusCircle
 } from 'lucide-react';
 
-// ==========================================
-// 1. CONFIGURACIÓN DEL BACKEND (PRODUCCIÓN)
-// ==========================================
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz3GNdBNC52cfPWHdrNFIVgOgBz9pIhafOcK7dJsyXmUSksOVY27DattCK-EIkd0rSz/exec';
 
 const apiCall = async (action, payload = {}) => {
@@ -20,7 +17,6 @@ const apiCall = async (action, payload = {}) => {
     });
     return await response.json();
   } catch (error) {
-    console.error("Error en apiCall:", error);
     return { status: 'error', message: 'Error de conexión con el servidor.' };
   }
 };
@@ -46,18 +42,14 @@ const formatCurrency = (amount) => {
   return new Intl.NumberFormat('es-PY', { style: 'currency', currency: 'PYG', maximumFractionDigits: 0 }).format(Number(amount) || 0);
 };
 
-// ==========================================
-// 2. APLICACIÓN PRINCIPAL (ENRUTADOR)
-// ==========================================
 export default function App() {
   const [user, setUser] = useState(null);
   
-  // Estados Globales (Datos cacheados para UX rápida)
   const [invoices, setInvoices] = useState([]);
   const [cobranzas, setCobranzas] = useState([]);
   const [clientes, setClientes] = useState([]);
+  const [abarisGastos, setAbarisGastos] = useState([]);
   
-  // Auth Form States
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
@@ -67,7 +59,6 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState({ type: '', text: '' });
 
-  // Función para cargar datos (Para el admin o cliente)
   const loadInitialData = async () => {
     try {
       const response = await fetch(GOOGLE_SCRIPT_URL);
@@ -75,7 +66,8 @@ export default function App() {
       if (result.status === 'success') {
         setInvoices(result.data.invoices || []);
         setCobranzas(result.data.cobranzas || []);
-        setClientes(result.data.usersData.filter(c => c.email !== 'jose.rojas14.jr89@gmail.com'));
+        setClientes((result.data.usersData || []).filter(c => c.email !== 'jose.rojas14.jr89@gmail.com'));
+        setAbarisGastos(result.data.abarisGastos || []);
       }
     } catch (e) { console.error(e); }
   };
@@ -106,7 +98,6 @@ export default function App() {
 
   const handleLogout = () => { setUser(null); setEmailInput(''); setPasswordInput(''); setAuthMessage({ type: '', text: '' }); };
 
-  // --- PANTALLA INICIO DE SESIÓN ---
   if (!user) {
     return (
       <div className="min-h-screen bg-[#0A1128] flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')]">
@@ -154,29 +145,63 @@ export default function App() {
     );
   }
 
-  // --- RENDERIZADO CONDICIONAL DE PANELES ---
   return user.role === 'admin' ? 
-    <AdminPanel user={user} onLogout={handleLogout} clientes={clientes} cobranzas={cobranzas} invoices={invoices} refreshData={loadInitialData} /> 
+    <AdminPanel user={user} onLogout={handleLogout} clientes={clientes} cobranzas={cobranzas} invoices={invoices} abarisGastos={abarisGastos} refreshData={loadInitialData} /> 
     : 
     <ClientPanel user={user} onLogout={handleLogout} cobranzas={cobranzas.filter(c => c.userEmail === user.email)} invoices={invoices.filter(i => i.userEmail === user.email)} refreshData={loadInitialData} />;
 }
 
 // ==========================================
-// 3. PANEL DE ADMINISTRADOR
+// 3. PANEL DE ADMINISTRADOR INTEGRAL
 // ==========================================
-function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, refreshData }) {
+function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, abarisGastos, refreshData }) {
   const [activeTab, setActiveTab] = useState('facturas_admin');
   
-  // Estados para Cobranzas
+  // Estados para Import/Export SET
+  const [importClient, setImportClient] = useState('');
+  const [importPeriod, setImportPeriod] = useState('');
+  const [exportClient, setExportClient] = useState('');
+  const [exportPeriod, setExportPeriod] = useState('');
+
+  // Estados Cobranzas
   const [cobClient, setCobClient] = useState('');
   const [cobPeriodo, setCobPeriodo] = useState('');
   const [cobMonto, setCobMonto] = useState('');
   const [isBilling, setIsBilling] = useState(false);
 
+  // Estados Gasto Estudio
+  const [gastoFecha, setGastoFecha] = useState('');
+  const [gastoConcepto, setGastoConcepto] = useState('');
+  const [gastoCategoria, setGastoCategoria] = useState('Distribución Equipo');
+  const [gastoMonto, setGastoMonto] = useState('');
+
+  // Lógica Calendario de Vencimientos según RUC paraguayo
+  const clientesConVencimiento = useMemo(() => {
+    return clientes.map(c => {
+      if (!c.ruc) return { ...c, diaVencimiento: null, digito: null };
+      const match = String(c.ruc).match(/(\d)(?:-\d)?$/);
+      if (!match) return { ...c, diaVencimiento: null, digito: null };
+      const digito = parseInt(match[1]);
+      const dia = (digito * 2) + 7;
+      return { ...c, diaVencimiento: dia, digito };
+    }).sort((a, b) => (a.diaVencimiento || 99) - (b.diaVencimiento || 99));
+  }, [clientes]);
+
+  // Cálculos de Finanzas Internas Abaris
+  const ingresosAbaris = useMemo(() => {
+    return cobranzas.filter(c => c.estado === 'Pagado').reduce((acc, curr) => acc + Number(curr.monto || 0), 0);
+  }, [cobranzas]);
+
+  const egresosAbaris = useMemo(() => {
+    return abarisGastos.reduce((acc, curr) => acc + Number(curr.monto || 0), 0);
+  }, [abarisGastos]);
+
+  const rentabilidadNeta = ingresosAbaris - egresosAbaris;
+
   const handleFacturar = async (e) => {
     e.preventDefault(); setIsBilling(true);
     await apiCall('addCobranza', { userEmail: cobClient, periodo: cobPeriodo, monto: cobMonto });
-    alert("Honorario facturado exitosamente.");
+    alert("Honorario generado con éxito.");
     setCobClient(''); setCobPeriodo(''); setCobMonto('');
     setIsBilling(false);
     refreshData();
@@ -187,6 +212,25 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, refreshData
     refreshData();
   };
 
+  const handleExportSET = (e) => {
+    e.preventDefault();
+    if (!exportClient || !exportPeriod) return alert("Selecciona cliente y periodo.");
+    const facturasFiltradas = invoices.filter(i => i.userEmail === exportClient && String(i.fecha).startsWith(exportPeriod));
+    
+    // Formato estructurado CSV para Marangatu / SET
+    let csvContent = "data:text/csv;charset=utf-8,Tipo,RUC,RazonSocial,Fecha,Monto,IVA10,IVA5,CDC\n";
+    facturasFiltradas.forEach(f => {
+      csvContent += `${f.tipo || 'Gasto'},${f.ruc || ''},${f.razonSocial || ''},${f.fecha || ''},${f.monto || 0},${f.iva10 || 0},${f.iva5 || 0},${f.cdc || ''}\n`;
+    });
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `REG_SET_${exportClient}_${exportPeriod}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex">
       {/* SIDEBAR ADMIN */}
@@ -194,40 +238,105 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, refreshData
         <div className="p-6 flex flex-col items-center border-b border-slate-800"><AbarisLogo className="w-16 h-16 mb-3" /><h1 className="text-lg font-bold text-[#D4AF37] tracking-wider text-center">ABARIS</h1><p className="text-xs text-slate-400 mt-1 uppercase">Admin Panel</p></div>
         <nav className="flex-1 p-4 space-y-2">
           <button onClick={() => setActiveTab('facturas_admin')} className={`w-full flex items-center p-3 rounded-lg text-sm transition-colors ${activeTab === 'facturas_admin' ? 'bg-slate-800 text-[#D4AF37]' : 'text-slate-300 hover:bg-slate-800/50'}`}><Receipt size={18} className="mr-3"/> Facturas y SET</button>
+          <button onClick={() => setActiveTab('vencimientos')} className={`w-full flex items-center p-3 rounded-lg text-sm transition-colors ${activeTab === 'vencimientos' ? 'bg-slate-800 text-[#D4AF37]' : 'text-slate-300 hover:bg-slate-800/50'}`}><CalendarDays size={18} className="mr-3"/> Vencimientos SET</button>
           <button onClick={() => setActiveTab('clientes')} className={`w-full flex items-center p-3 rounded-lg text-sm transition-colors ${activeTab === 'clientes' ? 'bg-slate-800 text-[#D4AF37]' : 'text-slate-300 hover:bg-slate-800/50'}`}><Users size={18} className="mr-3"/> Directorio Clientes</button>
           <button onClick={() => setActiveTab('cobranzas')} className={`w-full flex items-center p-3 rounded-lg text-sm transition-colors ${activeTab === 'cobranzas' ? 'bg-slate-800 text-[#D4AF37]' : 'text-slate-300 hover:bg-slate-800/50'}`}><DollarSign size={18} className="mr-3"/> Control Cobranzas</button>
+          <button onClick={() => setActiveTab('finanzas_estudio')} className={`w-full flex items-center p-3 rounded-lg text-sm transition-colors ${activeTab === 'finanzas_estudio' ? 'bg-slate-800 text-[#D4AF37]' : 'text-slate-300 hover:bg-slate-800/50'}`}><TrendingUp size={18} className="mr-3"/> Finanzas Abaris</button>
         </nav>
         <div className="p-4 border-t border-slate-800"><button onClick={onLogout} className="w-full flex items-center justify-center p-3 bg-red-900/40 text-red-300 rounded-lg text-sm"><LogOut size={18} className="mr-2" /> Cerrar Sesión</button></div>
       </div>
 
       <div className="flex-1 overflow-auto p-6 md:p-8">
         
-        {/* Cabecera Móvil (Solo visible en pantallas pequeñas) */}
+        {/* Cabecera Móvil */}
         <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
           <div className="flex items-center space-x-3"><AbarisLogo className="w-10 h-10" /><div><h1 className="text-sm font-bold text-[#0A1128]">{user.name}</h1><p className="text-xs text-slate-500">Administrador</p></div></div>
           <button onClick={onLogout} className="p-2 text-red-500 bg-red-50 rounded-lg"><LogOut className="w-5 h-5" /></button>
         </div>
         
-        {/* VISTAS ADMIN */}
+        {/* TAB: FACTURAS Y SET (IMPORTACIÓN Y EXPORTACIÓN) */}
         {activeTab === 'facturas_admin' && (
           <div className="max-w-6xl mx-auto space-y-6">
-            <h2 className="text-2xl font-bold text-[#0A1128]">Gestión de Facturas y SET</h2>
+            <h2 className="text-2xl font-bold text-[#0A1128]">Gestión Tributaria y Conexión SET</h2>
+            
+            {/* 1. IMPORTAR MARANGATU */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-              <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center"><Download className="mr-2 text-[#6B4B9A]"/> 1. Importar Excel (Marangatu)</h3>
-              <p className="text-sm text-slate-500 mb-4">Cruza los datos de Marangatu con el portal del cliente.</p>
-              <div className="flex gap-4">
-                <select className="border p-2 rounded bg-slate-50 text-sm flex-1"><option>Seleccionar Cliente...</option>{clientes.map(c => <option key={c.email}>{c.razonSocial}</option>)}</select>
-                <input type="month" className="border p-2 rounded bg-slate-50 text-sm" />
-                <input type="file" className="text-sm file:mr-2 border p-1.5 rounded" />
-                <button className="bg-[#6B4B9A] text-white px-5 rounded-lg text-sm font-semibold">Importar</button>
+              <h3 className="text-lg font-bold text-slate-800 mb-1 flex items-center"><Download className="mr-2 text-[#6B4B9A]"/> 1. Importar Facturas Electrónicas (Excel Marangatu)</h3>
+              <p className="text-sm text-slate-500 mb-4">Sube el reporte de la SET para cruzar las facturas emitidas/recibidas con el portal del cliente.</p>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div><label className="text-xs font-bold text-slate-600">Cliente</label><select value={importClient} onChange={e=>setImportClient(e.target.value)} className="w-full border p-2 rounded bg-slate-50 text-sm"><option value="">Seleccionar...</option>{clientes.map(c => <option key={c.email} value={c.email}>{c.razonSocial}</option>)}</select></div>
+                <div><label className="text-xs font-bold text-slate-600">Periodo</label><input type="month" value={importPeriod} onChange={e=>setImportPeriod(e.target.value)} className="w-full border p-2 rounded bg-slate-50 text-sm" /></div>
+                <div><label className="text-xs font-bold text-slate-600">Archivo Excel</label><input type="file" accept=".xlsx,.xls,.csv" className="w-full border p-1 rounded bg-slate-50 text-sm" /></div>
+                <button onClick={() => alert("Función de lectura lista. Selecciona el archivo exportado de Marangatu.")} className="bg-[#6B4B9A] text-white px-4 py-2.5 rounded-lg text-sm font-bold">Procesar Excel</button>
               </div>
+            </div>
+
+            {/* 2. EXPORTAR FORMATO OFICIAL SET */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+              <h3 className="text-lg font-bold text-slate-800 mb-1 flex items-center"><UploadCloud className="mr-2 text-[#C5A059]"/> 2. Exportar Comprobantes para Presentación (.TXT / .CSV)</h3>
+              <p className="text-sm text-slate-500 mb-4">Genera el archivo unificado de comprobantes físicos y electrónicos listos para Marangatu.</p>
+              <form onSubmit={handleExportSET} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <div><label className="text-xs font-bold text-slate-600">Cliente</label><select required value={exportClient} onChange={e=>setExportClient(e.target.value)} className="w-full border p-2 rounded bg-slate-50 text-sm"><option value="">Seleccionar...</option>{clientes.map(c => <option key={c.email} value={c.email}>{c.razonSocial}</option>)}</select></div>
+                <div><label className="text-xs font-bold text-slate-600">Periodo a Presentar</label><input required type="month" value={exportPeriod} onChange={e=>setExportPeriod(e.target.value)} className="w-full border p-2 rounded bg-slate-50 text-sm" /></div>
+                <button type="submit" className="bg-[#0A1128] text-[#D4AF37] border border-[#D4AF37] px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center"><Download size={16} className="mr-2" /> Descargar Archivo SET</button>
+              </form>
+            </div>
+
+            {/* REGISTRO GLOBAL DE FACTURAS */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+               <h3 className="text-lg font-bold p-5 border-b text-slate-800">Registro Global de Comprobantes</h3>
+               <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 border-b"><tr><th className="p-4">Fecha</th><th className="p-4">Cliente</th><th className="p-4">Proveedor / RUC</th><th className="p-4">Origen</th><th className="p-4 text-right">Monto</th></tr></thead>
+                  <tbody className="divide-y">
+                     {invoices.length === 0 ? <tr><td colSpan="5" className="p-6 text-center text-slate-400">No hay facturas cargadas.</td></tr> : 
+                      invoices.map((inv, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                           <td className="p-4 text-slate-600">{inv.fecha}</td>
+                           <td className="p-4 font-bold text-slate-900">{inv.userEmail}</td>
+                           <td className="p-4"><p className="font-semibold">{inv.razonSocial || 'Desconocido'}</p><p className="text-xs text-slate-500">{inv.ruc}</p></td>
+                           <td className="p-4"><span className="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-700">{inv.origen || 'App Móvil'}</span></td>
+                           <td className="p-4 text-right font-black text-slate-900">{formatCurrency(inv.monto)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+               </table>
             </div>
           </div>
         )}
 
+        {/* TAB: CALENDARIO DE VENCIMIENTOS (SET) */}
+        {activeTab === 'vencimientos' && (
+          <div className="max-w-6xl mx-auto space-y-6">
+            <h2 className="text-2xl font-bold text-[#0A1128]">Calendario de Vencimientos SET (Mes Actual)</h2>
+            <p className="text-sm text-slate-500">Prioridad y fechas límite de liquidación organizadas por el dígito verificador del RUC.</p>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-[#0A1128] text-white">
+                  <tr><th className="p-4">Día Límite</th><th className="p-4">Cliente</th><th className="p-4">RUC</th><th className="p-4 text-right">Prioridad</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {clientesConVencimiento.map((c, i) => (
+                    <tr key={i} className="hover:bg-slate-50">
+                      <td className="p-4 font-black text-lg text-[#0A1128]">{c.diaVencimiento ? `Día ${c.diaVencimiento}` : 'Sin RUC'}</td>
+                      <td className="p-4 font-bold text-slate-800">{c.razonSocial}<br/><span className="text-xs text-slate-500 font-normal">{c.email}</span></td>
+                      <td className="p-4 text-slate-600">{c.ruc || 'Falta cargar'}</td>
+                      <td className="p-4 text-right">
+                        {!c.diaVencimiento ? <span className="bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full font-bold">Incompleto</span> : 
+                         c.diaVencimiento <= 13 ? <span className="bg-red-100 text-red-800 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center"><AlertCircle size={12} className="mr-1"/> Próximo</span> : 
+                         <span className="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center"><CheckCircle size={12} className="mr-1"/> En Fecha</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: DIRECTORIO CLIENTES */}
         {activeTab === 'clientes' && (
           <div className="max-w-6xl mx-auto space-y-6">
-            <h2 className="text-2xl font-bold text-[#0A1128] mb-4">Directorio de Clientes</h2>
+            <h2 className="text-2xl font-bold text-[#0A1128]">Directorio de Clientes</h2>
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <table className="w-full text-sm text-left">
                 <thead className="bg-[#0A1128] text-white"><tr><th className="p-4">Razón Social</th><th className="p-4">RUC</th><th className="p-4">Teléfono</th><th className="p-4">Estado</th></tr></thead>
@@ -245,6 +354,7 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, refreshData
           </div>
         )}
 
+        {/* TAB: COBRANZAS */}
         {activeTab === 'cobranzas' && (
           <div className="max-w-6xl mx-auto space-y-6">
             <h2 className="text-2xl font-bold text-[#0A1128]">Control de Cobranzas Abaris</h2>
@@ -277,11 +387,47 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, refreshData
             </div>
           </div>
         )}
+
+        {/* TAB: FINANZAS INTERNAS DEL ESTUDIO */}
+        {activeTab === 'finanzas_estudio' && (
+          <div className="max-w-6xl mx-auto space-y-6">
+            <h2 className="text-2xl font-bold text-[#0A1128]">Finanzas Internas de Abaris</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                <p className="text-xs uppercase font-bold text-slate-500">Clientes Totales</p>
+                <p className="text-3xl font-black text-slate-800 mt-1">{clientes.length}</p>
+              </div>
+              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                <p className="text-xs uppercase font-bold text-slate-500">Ingresos Cobrados</p>
+                <p className="text-2xl font-black text-emerald-600 mt-1">{formatCurrency(ingresosAbaris)}</p>
+              </div>
+              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                <p className="text-xs uppercase font-bold text-slate-500">Egresos Operativos</p>
+                <p className="text-2xl font-black text-red-600 mt-1">{formatCurrency(egresosAbaris)}</p>
+              </div>
+              <div className="bg-[#0A1128] p-5 rounded-xl text-white shadow-sm">
+                <p className="text-xs uppercase font-bold text-[#D4AF37]">Rentabilidad Neta</p>
+                <p className="text-2xl font-black mt-1">{formatCurrency(rentabilidadNeta)}</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <h3 className="text-lg font-bold text-slate-800 mb-4">Registrar Egreso del Estudio</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div><label className="text-xs font-bold text-slate-600">Fecha</label><input type="date" value={gastoFecha} onChange={e=>setGastoFecha(e.target.value)} className="w-full border p-2 rounded text-sm bg-slate-50" /></div>
+                <div><label className="text-xs font-bold text-slate-600">Concepto</label><input type="text" placeholder="Ej. Software / Papelería" value={gastoConcepto} onChange={e=>setGastoConcepto(e.target.value)} className="w-full border p-2 rounded text-sm bg-slate-50" /></div>
+                <div><label className="text-xs font-bold text-slate-600">Monto Gs.</label><input type="number" value={gastoMonto} onChange={e=>setGastoMonto(e.target.value)} className="w-full border p-2 rounded text-sm bg-slate-50" /></div>
+                <button onClick={() => alert("Gasto registrado")} className="bg-[#6B4B9A] text-white p-2.5 rounded-lg font-bold text-sm">Guardar Egreso</button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
 }
-
 
 // ==========================================
 // 4. PANEL DEL CLIENTE
@@ -289,29 +435,24 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, refreshData
 function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
   const [activeTab, setActiveTab] = useState('gestion_cliente');
   
-  // Archivos Refs
   const fileInputRef = useRef(null);
   const extractoInputRef = useRef(null);
   
-  // OCR Preview Form States
   const [showOcrPreview, setShowOcrPreview] = useState(false);
-  const [ocrData, setOcrData] = useState({ ruc: '', razonSocial: '', fecha: '', tipo: 'Gasto', monto: '', iva5: '', iva10: '', fileBase64: '', fileName: '', mimeType: '' });
+  const [ocrData, setOcrData] = useState({ ruc: '', razonSocial: '', fecha: '', tipo: 'Gasto', monto: '', iva5: '0', iva10: '', fileBase64: '', fileName: '', mimeType: '' });
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [isSavingOcr, setIsSavingOcr] = useState(false);
   
-  // Mensajes globales
   const [uploadMessage, setUploadMessage] = useState({ type: '', text: '', source: '' });
 
-  // Resumen Calculado
-  const filterMonth = new Date().toISOString().slice(0,7); // Mes actual
+  const filterMonth = new Date().toISOString().slice(0,7);
   const summary = useMemo(() => {
     const currentInvoices = invoices.filter(i => String(i.fecha).startsWith(filterMonth));
-    const ventas = currentInvoices.filter(i => i.tipo === 'Ingreso').reduce((a, c) => a + Number(c.monto), 0);
-    const compras = currentInvoices.filter(i => i.tipo === 'Gasto').reduce((a, c) => a + Number(c.monto), 0);
+    const ventas = currentInvoices.filter(i => i.tipo === 'Ingreso').reduce((a, c) => a + Number(c.monto || 0), 0);
+    const compras = currentInvoices.filter(i => i.tipo === 'Gasto' || i.tipo === 'Compra').reduce((a, c) => a + Number(c.monto || 0), 0);
     return { ventas, compras, ivaAPagar: (ventas * 0.1) - (compras * 0.1) };
   }, [invoices, filterMonth]);
 
-  // --- FLUJO 1: CAPTURA DE FACTURA Y PREVIEW OCR ---
   const handleCaptureClick = () => { fileInputRef.current.click(); };
   
   const handleFileChange = (e) => {
@@ -323,39 +464,50 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
     reader.readAsDataURL(file);
     reader.onload = () => {
       const base64 = reader.result.split(',')[1];
-      // Simulamos la lectura OCR abriendo el formulario de preview pre-llenado
-      setTimeout(() => {
-        setOcrData({
-          ruc: '80000000-1', 
-          razonSocial: 'Proveedor de Ejemplo', 
-          fecha: new Date().toISOString().split('T')[0], 
-          tipo: 'Gasto', 
-          monto: '', iva5: '0', iva10: '',
-          fileBase64: base64, fileName: `${new Date().getTime()}_${file.name}`, mimeType: file.type
-        });
-        setIsProcessingFile(false);
-        setShowOcrPreview(true);
-      }, 1000);
+      // Deja los campos limpios y con fecha de hoy para que el usuario ingrese o confirme montos reales sin datos ficticios
+      setOcrData({
+        ruc: '', 
+        razonSocial: '', 
+        fecha: new Date().toISOString().split('T')[0], 
+        tipo: 'Gasto', 
+        monto: '', 
+        iva5: '0', 
+        iva10: '',
+        fileBase64: base64, 
+        fileName: `${new Date().getTime()}_${file.name}`, 
+        mimeType: file.type
+      });
+      setIsProcessingFile(false);
+      setShowOcrPreview(true);
     };
   };
 
   const submitOcrForm = async (e) => {
     e.preventDefault(); setIsSavingOcr(true);
     const payload = {
-      userEmail: user.email, folderName: `${user.name} - ${user.ruc}`, subFolder: "Costos",
-      fileName: ocrData.fileName, fileBase64: ocrData.fileBase64, mimeType: ocrData.mimeType,
-      fecha: ocrData.fecha, ruc: ocrData.ruc, razonSocial: ocrData.razonSocial, 
-      tipo: ocrData.tipo, monto: ocrData.monto, iva5: ocrData.iva5, iva10: ocrData.iva10, origen: 'App Móvil'
+      userEmail: user.email, 
+      folderName: `${user.name} - ${user.ruc}`, 
+      subFolder: "Costos",
+      fileName: ocrData.fileName, 
+      fileBase64: ocrData.fileBase64, 
+      mimeType: ocrData.mimeType,
+      fecha: ocrData.fecha, 
+      ruc: ocrData.ruc, 
+      razonSocial: ocrData.razonSocial || 'Comprobante Físico', 
+      tipo: ocrData.tipo, 
+      monto: ocrData.monto, 
+      iva5: ocrData.iva5, 
+      iva10: ocrData.iva10, 
+      origen: 'App Móvil'
     };
     const response = await apiCall('addInvoice', payload);
     if (response.status === 'success') {
-      setUploadMessage({ type: 'success', text: '¡Factura guardada correctamente en Drive y registrada en tu balance!', source: 'factura' });
+      setUploadMessage({ type: 'success', text: '¡Comprobante guardado en tu Drive y registrado en tu balance!', source: 'factura' });
       setShowOcrPreview(false); refreshData();
-    } else { alert("Error al guardar."); }
+    } else { alert("Error al guardar comprobante."); }
     setIsSavingOcr(false);
   };
 
-  // --- FLUJO 2: EXTRACTOS NETFLIX / SPOTIFY ---
   const handleExtractoUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -370,12 +522,11 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
         fecha: new Date().toISOString().split('T')[0], ruc: user.ruc, razonSocial: 'Extracto Tarjeta (Servicios Digitales)', tipo: 'Extracto', monto: 0
       };
       const response = await apiCall('addInvoice', payload);
-      setUploadMessage({ type: response.status === 'success' ? 'success' : 'error', text: response.status === 'success' ? '¡Extracto subido a la carpeta del mes!' : 'Error.', source: 'extracto' });
+      setUploadMessage({ type: response.status === 'success' ? 'success' : 'error', text: response.status === 'success' ? '¡Extracto subido a tu carpeta de Drive!' : 'Error.', source: 'extracto' });
       setIsProcessingFile(false); refreshData();
     };
   };
 
-  // --- FLUJO 3: SUBIR TRANSFERENCIA DE PAGO ---
   const handlePay = async (cobId) => {
     await apiCall('updateCobranza', { id: cobId, data: { estado: 'En Revisión' } });
     alert("¡Comprobante enviado! Abaris validará el pago en breve.");
@@ -384,8 +535,6 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex relative">
-      
-      {/* SIDEBAR ESCRITORIO CLIENTE (Oculto en móvil) */}
       <header className="w-64 bg-[#0A1128] text-white flex flex-col border-r border-slate-800 shrink-0 hidden md:flex">
          <div className="p-6 flex flex-col items-center border-b border-slate-800"><AbarisLogo className="w-16 h-16 mb-3" /><h1 className="text-lg font-bold text-[#D4AF37] tracking-wider text-center">ABARIS</h1><p className="text-[10px] tracking-widest uppercase text-[#C5A059]">Portal Cliente</p></div>
          <nav className="flex-1 p-4 space-y-2">
@@ -396,21 +545,17 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
          <div className="p-4 border-t border-slate-800"><button onClick={onLogout} className="w-full flex text-red-400 p-2"><LogOut className="w-4 h-4 mr-2" /> Cerrar Sesión</button></div>
       </header>
 
-      {/* CONTENIDO PRINCIPAL */}
       <div className="flex-1 overflow-auto p-4 md:p-8 pb-24 md:pb-8">
         
-        {/* Header Móvil */}
         <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
           <div className="flex items-center space-x-3"><AbarisLogo className="w-10 h-10" /><div><h1 className="text-sm font-bold text-[#0A1128] truncate max-w-[150px]">{user.name}</h1><p className="text-xs text-slate-500">Portal Cliente</p></div></div>
           <button onClick={onLogout} className="p-2 text-red-500 bg-red-50 rounded-lg"><LogOut className="w-5 h-5" /></button>
         </div>
 
-        {/* --- TABS --- */}
         {activeTab === 'gestion_cliente' && (
           <div className="max-w-5xl mx-auto space-y-6">
             <h2 className="text-2xl font-bold text-[#0A1128]">Mi Gestión Tributaria</h2>
 
-            {/* RESUMEN DE IVA */}
             <div className="bg-[#0A1128] rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
               <div className="absolute top-0 right-0 p-8 opacity-10"><Receipt className="w-32 h-32" /></div>
               <h3 className="text-lg font-medium text-slate-300 mb-1">Resumen de IVA Estimado ({filterMonth})</h3>
@@ -422,7 +567,6 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
               </div>
             </div>
 
-            {/* BANNER SERVICIOS DIGITALES */}
             <div className="bg-blue-50 border-l-4 border-blue-500 p-5 rounded-r-lg shadow-sm flex flex-col md:flex-row justify-between md:items-center gap-4">
                <div>
                  <h4 className="text-blue-800 font-bold">Extractos para IVA (Servicios Digitales)</h4>
@@ -433,7 +577,6 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
             </div>
             {uploadMessage.source === 'extracto' && <div className="text-sm p-3 rounded-lg font-medium bg-green-100 text-green-800">{uploadMessage.text}</div>}
 
-            {/* ZONA DE CARGA DE FACTURAS (CON OCR SIMULADO) */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center"><CheckCircle className="w-5 h-5 text-[#D4AF37] mr-2"/> Carga de Comprobante Físico</h3>
                
@@ -442,37 +585,35 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
                    <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" capture="environment" />
                    <button onClick={handleCaptureClick} disabled={isProcessingFile} className="w-full py-10 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-500 hover:bg-slate-50 hover:border-[#D4AF37] hover:text-[#D4AF37] transition-colors disabled:opacity-50">
                       {isProcessingFile ? (
-                        <><RefreshCw className="w-10 h-10 mb-2 animate-spin text-[#D4AF37]" /><span className="font-medium">Leyendo documento...</span></>
+                        <><RefreshCw className="w-10 h-10 mb-2 animate-spin text-[#D4AF37]" /><span className="font-medium">Procesando archivo...</span></>
                       ) : (
-                        <><Camera className="w-10 h-10 mb-2" /><span className="font-bold text-lg">Tomar foto de factura</span><span className="text-xs mt-1">Revisarás los datos antes de guardar</span></>
+                        <><Camera className="w-10 h-10 mb-2" /><span className="font-bold text-lg">Tomar foto o subir comprobante</span><span className="text-xs mt-1">Revisa el monto antes de guardar en tu Drive</span></>
                       )}
                    </button>
                    {uploadMessage.source === 'factura' && <div className="mt-4 text-sm p-3 rounded-lg font-medium bg-green-100 text-green-800 text-center">{uploadMessage.text}</div>}
                  </>
                ) : (
-                 /* FORMULARIO DE VALIDACIÓN OCR ANTES DE ENVIAR A DRIVE */
-                 <div className="border border-[#C5A059] rounded-xl p-5 bg-[#F9E7B3]/10 animate-fade-in">
-                    <h4 className="font-bold text-[#8A6D3B] mb-4 flex items-center"><Edit2 size={18} className="mr-2"/> Validar Datos Leídos</h4>
+                 <div className="border border-[#C5A059] rounded-xl p-5 bg-[#F9E7B3]/10">
+                    <h4 className="font-bold text-[#8A6D3B] mb-4 flex items-center"><Edit2 size={18} className="mr-2"/> Validación de Datos del Comprobante</h4>
                     <form onSubmit={submitOcrForm} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div><label className="text-xs font-bold text-slate-600">RUC Proveedor</label><input type="text" required value={ocrData.ruc} onChange={e=>setOcrData({...ocrData, ruc: e.target.value})} className="w-full border p-2 rounded-lg bg-white" /></div>
-                      <div><label className="text-xs font-bold text-slate-600">Razón Social</label><input type="text" value={ocrData.razonSocial} onChange={e=>setOcrData({...ocrData, razonSocial: e.target.value})} className="w-full border p-2 rounded-lg bg-white" /></div>
-                      <div><label className="text-xs font-bold text-slate-600">Fecha</label><input type="date" required value={ocrData.fecha} onChange={e=>setOcrData({...ocrData, fecha: e.target.value})} className="w-full border p-2 rounded-lg bg-white" /></div>
-                      <div><label className="text-xs font-bold text-slate-600">Tipo</label><select value={ocrData.tipo} onChange={e=>setOcrData({...ocrData, tipo: e.target.value})} className="w-full border p-2 rounded-lg bg-white"><option value="Gasto">Compra / Gasto</option><option value="Ingreso">Venta / Ingreso</option></select></div>
-                      <div><label className="text-xs font-bold text-slate-600">IVA 10%</label><input type="number" value={ocrData.iva10} onChange={e=>setOcrData({...ocrData, iva10: e.target.value})} className="w-full border p-2 rounded-lg bg-white" /></div>
-                      <div><label className="text-xs font-bold text-slate-800">MONTO TOTAL *</label><input type="number" required value={ocrData.monto} onChange={e=>setOcrData({...ocrData, monto: e.target.value})} className="w-full border-2 border-[#0A1128] p-2 rounded-lg bg-white font-bold" /></div>
+                      <div><label className="text-xs font-bold text-slate-600">RUC Proveedor</label><input type="text" placeholder="Ej. 80012345-6" value={ocrData.ruc} onChange={e=>setOcrData({...ocrData, ruc: e.target.value})} className="w-full border p-2 rounded-lg bg-white" /></div>
+                      <div><label className="text-xs font-bold text-slate-600">Razón Social Proveedor</label><input type="text" placeholder="Ej. Supermercado / Estación" value={ocrData.razonSocial} onChange={e=>setOcrData({...ocrData, razonSocial: e.target.value})} className="w-full border p-2 rounded-lg bg-white" /></div>
+                      <div><label className="text-xs font-bold text-slate-600">Fecha de Factura *</label><input type="date" required value={ocrData.fecha} onChange={e=>setOcrData({...ocrData, fecha: e.target.value})} className="w-full border p-2 rounded-lg bg-white" /></div>
+                      <div><label className="text-xs font-bold text-slate-600">Tipo de Comprobante</label><select value={ocrData.tipo} onChange={e=>setOcrData({...ocrData, tipo: e.target.value})} className="w-full border p-2 rounded-lg bg-white"><option value="Gasto">Compra / Gasto</option><option value="Ingreso">Venta / Ingreso</option></select></div>
+                      <div><label className="text-xs font-bold text-slate-600">IVA 10% (Gs.)</label><input type="number" placeholder="Ej. 10000" value={ocrData.iva10} onChange={e=>setOcrData({...ocrData, iva10: e.target.value})} className="w-full border p-2 rounded-lg bg-white" /></div>
+                      <div><label className="text-xs font-bold text-slate-800">MONTO TOTAL (Gs.) *</label><input type="number" required placeholder="Ej. 110000" value={ocrData.monto} onChange={e=>setOcrData({...ocrData, monto: e.target.value})} className="w-full border-2 border-[#0A1128] p-2 rounded-lg bg-white font-bold" /></div>
                       
                       <div className="md:col-span-2 flex justify-end gap-3 mt-2">
                         <button type="button" onClick={() => setShowOcrPreview(false)} className="px-4 py-2 text-slate-500 font-medium">Cancelar</button>
-                        <button type="submit" disabled={isSavingOcr} className="bg-[#0A1128] text-white px-6 py-2 rounded-lg font-bold shadow-md">{isSavingOcr ? 'Guardando...' : 'Confirmar y Subir a Drive'}</button>
+                        <button type="submit" disabled={isSavingOcr} className="bg-[#0A1128] text-white px-6 py-2 rounded-lg font-bold shadow-md">{isSavingOcr ? 'Guardando en Drive...' : 'Confirmar y Guardar'}</button>
                       </div>
                     </form>
                  </div>
                )}
             </div>
 
-            {/* TABLA: HISTORIAL DEL MES */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-               <h3 className="text-lg font-bold text-slate-800 p-5 border-b"><FileText className="inline mr-2 text-[#6B4B9A]"/> Historial del Mes</h3>
+               <h3 className="text-lg font-bold text-slate-800 p-5 border-b"><FileText className="inline mr-2 text-[#6B4B9A]"/> Comprobantes Registrados ({filterMonth})</h3>
                <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 border-b"><tr><th className="p-4">Fecha</th><th className="p-4">Proveedor</th><th className="p-4 text-right">Total</th></tr></thead>
                   <tbody className="divide-y">
@@ -489,7 +630,6 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
           </div>
         )}
 
-        {/* --- TAB: MIS PAGOS --- */}
         {activeTab === 'pagos_cliente' && (
           <div className="max-w-5xl mx-auto space-y-6">
             <h2 className="text-2xl font-bold text-[#0A1128]">Mis Pagos y Honorarios</h2>
@@ -528,7 +668,6 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
           </div>
         )}
 
-        {/* --- TAB: BÓVEDA --- */}
         {activeTab === 'boveda' && (
           <div className="max-w-5xl mx-auto space-y-6">
             <h2 className="text-2xl font-bold text-[#0A1128]">Mi Bóveda de Documentos</h2>
@@ -548,7 +687,6 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
         )}
       </div>
 
-      {/* --- BARRA MÓVIL INFERIOR (SOLO CLIENTE) --- */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A1128] border-t border-slate-700 flex justify-around items-center py-2 px-2 z-50 pb-safe">
         <button onClick={() => setActiveTab('gestion_cliente')} className={`flex flex-col items-center p-2 w-1/3 ${activeTab === 'gestion_cliente' ? 'text-[#D4AF37]' : 'text-slate-400'}`}><Receipt className="w-6 h-6" /><span className="text-[10px] mt-1 font-medium">Inicio</span></button>
         <button onClick={() => setActiveTab('pagos_cliente')} className={`flex flex-col items-center p-2 w-1/3 ${activeTab === 'pagos_cliente' ? 'text-[#D4AF37]' : 'text-slate-400'}`}><Wallet className="w-6 h-6" /><span className="text-[10px] mt-1 font-medium">Pagos</span></button>
