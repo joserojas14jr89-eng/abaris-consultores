@@ -152,30 +152,25 @@ export default function App() {
 }
 
 // ==========================================
-// 3. PANEL DE ADMINISTRADOR INTEGRAL
+// 3. PANEL DE ADMINISTRADOR
 // ==========================================
 function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, abarisGastos, refreshData }) {
   const [activeTab, setActiveTab] = useState('facturas_admin');
   
-  // Estados para Import/Export SET
   const [importClient, setImportClient] = useState('');
   const [importPeriod, setImportPeriod] = useState('');
   const [exportClient, setExportClient] = useState('');
   const [exportPeriod, setExportPeriod] = useState('');
 
-  // Estados Cobranzas
   const [cobClient, setCobClient] = useState('');
   const [cobPeriodo, setCobPeriodo] = useState('');
   const [cobMonto, setCobMonto] = useState('');
   const [isBilling, setIsBilling] = useState(false);
 
-  // Estados Gasto Estudio
   const [gastoFecha, setGastoFecha] = useState('');
   const [gastoConcepto, setGastoConcepto] = useState('');
-  const [gastoCategoria, setGastoCategoria] = useState('Distribución Equipo');
   const [gastoMonto, setGastoMonto] = useState('');
 
-  // Lógica Calendario de Vencimientos según RUC paraguayo
   const clientesConVencimiento = useMemo(() => {
     return clientes.map(c => {
       if (!c.ruc) return { ...c, diaVencimiento: null, digito: null };
@@ -187,7 +182,6 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, abarisGasto
     }).sort((a, b) => (a.diaVencimiento || 99) - (b.diaVencimiento || 99));
   }, [clientes]);
 
-  // Cálculos de Finanzas Internas Abaris
   const ingresosAbaris = useMemo(() => {
     return cobranzas.filter(c => c.estado === 'Pagado').reduce((acc, curr) => acc + Number(curr.monto || 0), 0);
   }, [cobranzas]);
@@ -217,7 +211,6 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, abarisGasto
     if (!exportClient || !exportPeriod) return alert("Selecciona cliente y periodo.");
     const facturasFiltradas = invoices.filter(i => i.userEmail === exportClient && String(i.fecha).startsWith(exportPeriod));
     
-    // Formato estructurado CSV para Marangatu / SET
     let csvContent = "data:text/csv;charset=utf-8,Tipo,RUC,RazonSocial,Fecha,Monto,IVA10,IVA5,CDC\n";
     facturasFiltradas.forEach(f => {
       csvContent += `${f.tipo || 'Gasto'},${f.ruc || ''},${f.razonSocial || ''},${f.fecha || ''},${f.monto || 0},${f.iva10 || 0},${f.iva5 || 0},${f.cdc || ''}\n`;
@@ -254,12 +247,11 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, abarisGasto
           <button onClick={onLogout} className="p-2 text-red-500 bg-red-50 rounded-lg"><LogOut className="w-5 h-5" /></button>
         </div>
         
-        {/* TAB: FACTURAS Y SET (IMPORTACIÓN Y EXPORTACIÓN) */}
+        {/* TAB: FACTURAS Y SET */}
         {activeTab === 'facturas_admin' && (
           <div className="max-w-6xl mx-auto space-y-6">
             <h2 className="text-2xl font-bold text-[#0A1128]">Gestión Tributaria y Conexión SET</h2>
             
-            {/* 1. IMPORTAR MARANGATU */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
               <h3 className="text-lg font-bold text-slate-800 mb-1 flex items-center"><Download className="mr-2 text-[#6B4B9A]"/> 1. Importar Facturas Electrónicas (Excel Marangatu)</h3>
               <p className="text-sm text-slate-500 mb-4">Sube el reporte de la SET para cruzar las facturas emitidas/recibidas con el portal del cliente.</p>
@@ -271,7 +263,6 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, abarisGasto
               </div>
             </div>
 
-            {/* 2. EXPORTAR FORMATO OFICIAL SET */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
               <h3 className="text-lg font-bold text-slate-800 mb-1 flex items-center"><UploadCloud className="mr-2 text-[#C5A059]"/> 2. Exportar Comprobantes para Presentación (.TXT / .CSV)</h3>
               <p className="text-sm text-slate-500 mb-4">Genera el archivo unificado de comprobantes físicos y electrónicos listos para Marangatu.</p>
@@ -282,7 +273,6 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, abarisGasto
               </form>
             </div>
 
-            {/* REGISTRO GLOBAL DE FACTURAS */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                <h3 className="text-lg font-bold p-5 border-b text-slate-800">Registro Global de Comprobantes</h3>
                <table className="w-full text-sm text-left">
@@ -304,7 +294,7 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, abarisGasto
           </div>
         )}
 
-        {/* TAB: CALENDARIO DE VENCIMIENTOS (SET) */}
+        {/* TAB: VENCIMIENTOS SET */}
         {activeTab === 'vencimientos' && (
           <div className="max-w-6xl mx-auto space-y-6">
             <h2 className="text-2xl font-bold text-[#0A1128]">Calendario de Vencimientos SET (Mes Actual)</h2>
@@ -388,7 +378,7 @@ function AdminPanel({ user, onLogout, clientes, cobranzas, invoices, abarisGasto
           </div>
         )}
 
-        {/* TAB: FINANZAS INTERNAS DEL ESTUDIO */}
+        {/* TAB: FINANZAS DE ABARIS */}
         {activeTab === 'finanzas_estudio' && (
           <div className="max-w-6xl mx-auto space-y-6">
             <h2 className="text-2xl font-bold text-[#0A1128]">Finanzas Internas de Abaris</h2>
@@ -458,25 +448,45 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    setIsProcessingFile(true); setUploadMessage({ type: '', text: '', source: '' });
+    setIsProcessingFile(true); 
+    setUploadMessage({ type: '', text: '', source: '' });
     
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = () => {
+    reader.onload = async () => {
       const base64 = reader.result.split(',')[1];
-      // Deja los campos limpios y con fecha de hoy para que el usuario ingrese o confirme montos reales sin datos ficticios
-      setOcrData({
-        ruc: '', 
-        razonSocial: '', 
-        fecha: new Date().toISOString().split('T')[0], 
-        tipo: 'Gasto', 
-        monto: '', 
-        iva5: '0', 
-        iva10: '',
-        fileBase64: base64, 
-        fileName: `${new Date().getTime()}_${file.name}`, 
-        mimeType: file.type
-      });
+      
+      try {
+        const resOcr = await apiCall('processOCR', { 
+          fileBase64: base64,
+          clientRuc: user.ruc || '' 
+        });
+        
+        if (resOcr && resOcr.status === 'success' && resOcr.data) {
+          const d = resOcr.data;
+          setOcrData({
+            ruc: d.ruc || '', 
+            razonSocial: d.razonSocial || '', 
+            fecha: d.fecha || new Date().toISOString().split('T')[0], 
+            tipo: 'Gasto', 
+            monto: d.monto ? String(d.monto) : '', 
+            iva5: d.iva5 ? String(d.iva5) : '0', 
+            iva10: d.iva10 ? String(d.iva10) : '',
+            fileBase64: base64, 
+            fileName: `${new Date().getTime()}_${file.name}`, 
+            mimeType: file.type
+          });
+        } else {
+          setOcrData({
+            ruc: '', razonSocial: '', fecha: new Date().toISOString().split('T')[0],
+            tipo: 'Gasto', monto: '', iva5: '0', iva10: '',
+            fileBase64: base64, fileName: `${new Date().getTime()}_${file.name}`, mimeType: file.type
+          });
+        }
+      } catch (err) {
+        console.error("Error OCR:", err);
+      }
+
       setIsProcessingFile(false);
       setShowOcrPreview(true);
     };
@@ -585,7 +595,7 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
                    <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" capture="environment" />
                    <button onClick={handleCaptureClick} disabled={isProcessingFile} className="w-full py-10 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-500 hover:bg-slate-50 hover:border-[#D4AF37] hover:text-[#D4AF37] transition-colors disabled:opacity-50">
                       {isProcessingFile ? (
-                        <><RefreshCw className="w-10 h-10 mb-2 animate-spin text-[#D4AF37]" /><span className="font-medium">Procesando archivo...</span></>
+                        <><RefreshCw className="w-10 h-10 mb-2 animate-spin text-[#D4AF37]" /><span className="font-medium">Leyendo documento con IA...</span></>
                       ) : (
                         <><Camera className="w-10 h-10 mb-2" /><span className="font-bold text-lg">Tomar foto o subir comprobante</span><span className="text-xs mt-1">Revisa el monto antes de guardar en tu Drive</span></>
                       )}
