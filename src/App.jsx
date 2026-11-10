@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Building2, Receipt, Users, LogOut, FileText, 
   UploadCloud, CheckCircle, Shield, ChevronRight, 
-  DollarSign, Lock, Search, CalendarDays, Wallet
+  DollarSign, Lock, Search, CalendarDays, Wallet, User, Phone, CreditCard
 } from 'lucide-react';
 
 // ==========================================
@@ -10,7 +10,6 @@ import {
 // ==========================================
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz3GNdBNC52cfPWHdrNFIVgOgBz9pIhafOcK7dJsyXmUSksOVY27DattCK-EIkd0rSz/exec';
 
-// Utilidad para llamar a tu Google Apps Script
 const apiCall = async (action, payload = {}) => {
   try {
     const response = await fetch(GOOGLE_SCRIPT_URL, {
@@ -26,7 +25,7 @@ const apiCall = async (action, payload = {}) => {
 };
 
 // ==========================================
-// 2. COMPONENTES VISUALES (BRANDING ABARIS)
+// 2. COMPONENTES VISUALES
 // ==========================================
 const AbarisLogo = ({ className = "w-12 h-12" }) => (
   <div className={`${className} relative flex items-center justify-center shrink-0`}>
@@ -56,46 +55,84 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('inicio');
   
-  // Estados de Login
+  // Estados del Formulario (Login / Registro)
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [loginError, setLoginError] = useState('');
+  const [nameInput, setNameInput] = useState('');
+  const [rucInput, setRucInput] = useState('');
+  const [phoneInput, setPhoneInput] = useState('');
+  
+  const [isLoading, setIsLoading] = useState(false);
+  const [authMessage, setAuthMessage] = useState({ type: '', text: '' });
 
-  // ----------------------------------------
-  // LÓGICA DE INICIO DE SESIÓN (REAL)
-  // ----------------------------------------
+  // --- LÓGICA DE INICIO DE SESIÓN ---
   const handleLogin = async (e) => {
     e.preventDefault();
-    setLoginError('');
-    setIsLoggingIn(true);
+    setAuthMessage({ type: '', text: '' });
+    setIsLoading(true);
 
     if (!emailInput || !passwordInput) {
-      setLoginError('Por favor, completa todos los campos.');
-      setIsLoggingIn(false);
+      setAuthMessage({ type: 'error', text: 'Por favor, completa todos los campos.' });
+      setIsLoading(false);
       return;
     }
 
     const response = await apiCall('login', { email: emailInput, password: passwordInput });
 
     if (response.status === 'success') {
-      setUser(response.user); // Carga el perfil (admin o client)
+      setUser(response.user);
       setActiveTab(response.user.role === 'admin' ? 'facturas_admin' : 'gestion_cliente');
     } else {
-      setLoginError(response.message || 'Error al iniciar sesión.');
+      setAuthMessage({ type: 'error', text: response.message || 'Error al iniciar sesión.' });
     }
-    
-    setIsLoggingIn(false);
+    setIsLoading(false);
+  };
+
+  // --- LÓGICA DE REGISTRO DE NUEVO CLIENTE ---
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setAuthMessage({ type: '', text: '' });
+    setIsLoading(true);
+
+    if (!emailInput || !passwordInput || !nameInput || !rucInput) {
+      setAuthMessage({ type: 'error', text: 'Por favor, completa los campos obligatorios.' });
+      setIsLoading(false);
+      return;
+    }
+
+    const payload = {
+      email: emailInput,
+      password: passwordInput,
+      razonSocial: nameInput,
+      ruc: rucInput,
+      telefono: phoneInput
+    };
+
+    const response = await apiCall('addUser', payload);
+
+    if (response.status === 'success') {
+      setAuthMessage({ type: 'success', text: '¡Cuenta creada! Ingresando al portal...' });
+      // Iniciar sesión automáticamente tras el registro
+      setTimeout(() => {
+        setUser({ email: emailInput, role: 'client', name: nameInput, ruc: rucInput });
+        setActiveTab('gestion_cliente');
+      }, 1500);
+    } else {
+      setAuthMessage({ type: 'error', text: response.message || 'Error al crear la cuenta.' });
+    }
+    setIsLoading(false);
   };
 
   const handleLogout = () => {
     setUser(null);
     setEmailInput('');
     setPasswordInput('');
+    setAuthMessage({ type: '', text: '' });
   };
 
   // ----------------------------------------
-  // PANTALLA DE INICIO DE SESIÓN
+  // PANTALLA DE INICIO DE SESIÓN Y REGISTRO
   // ----------------------------------------
   if (!user) {
     return (
@@ -113,58 +150,86 @@ export default function App() {
         </div>
 
         <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-          <div className="bg-[#121A35] py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-700/50">
-            <form className="space-y-6" onSubmit={handleLogin}>
+          <div className="bg-[#121A35]/90 backdrop-blur py-8 px-4 shadow-2xl sm:rounded-xl sm:px-10 border border-slate-700/50 mx-4 sm:mx-0">
+            
+            <form className="space-y-5" onSubmit={isRegisterMode ? handleRegister : handleLogin}>
+              
+              {/* Campos de Registro (Solo se ven si isRegisterMode es true) */}
+              {isRegisterMode && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300">Nombre o Razón Social *</label>
+                    <div className="mt-1 relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><User className="h-5 w-5 text-slate-500" /></div>
+                      <input type="text" required value={nameInput} onChange={(e) => setNameInput(e.target.value)}
+                        className="appearance-none block w-full pl-10 pr-3 py-2.5 border border-slate-600 rounded-md bg-[#0A1128] text-white focus:ring-[#D4AF37] focus:border-[#D4AF37] sm:text-sm" placeholder="Tu Nombre o Empresa" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300">RUC *</label>
+                      <div className="mt-1 relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><CreditCard className="h-5 w-5 text-slate-500" /></div>
+                        <input type="text" required value={rucInput} onChange={(e) => setRucInput(e.target.value)}
+                          className="appearance-none block w-full pl-10 pr-3 py-2.5 border border-slate-600 rounded-md bg-[#0A1128] text-white focus:ring-[#D4AF37] focus:border-[#D4AF37] sm:text-sm" placeholder="1234567-8" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300">Teléfono</label>
+                      <div className="mt-1 relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Phone className="h-5 w-5 text-slate-500" /></div>
+                        <input type="tel" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)}
+                          className="appearance-none block w-full pl-10 pr-3 py-2.5 border border-slate-600 rounded-md bg-[#0A1128] text-white focus:ring-[#D4AF37] focus:border-[#D4AF37] sm:text-sm" placeholder="09XX XXX XXX" />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Campos comunes: Correo y Contraseña */}
               <div>
-                <label className="block text-sm font-medium text-slate-300">Correo Electrónico</label>
+                <label className="block text-sm font-medium text-slate-300">Correo Electrónico {isRegisterMode && '*'}</label>
                 <div className="mt-1 relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <Lock className="h-5 w-5 text-slate-500" />
                   </div>
-                  <input
-                    type="email"
-                    required
-                    value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
-                    className="appearance-none block w-full pl-10 pr-3 py-2 border border-slate-600 rounded-md shadow-sm bg-[#0A1128] text-white focus:outline-none focus:ring-[#D4AF37] focus:border-[#D4AF37] sm:text-sm"
-                    placeholder="tu@correo.com"
-                  />
+                  <input type="email" required value={emailInput} onChange={(e) => setEmailInput(e.target.value)}
+                    className="appearance-none block w-full pl-10 pr-3 py-2.5 border border-slate-600 rounded-md bg-[#0A1128] text-white focus:ring-[#D4AF37] focus:border-[#D4AF37] sm:text-sm" placeholder="tu@correo.com" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300">Contraseña</label>
+                <label className="block text-sm font-medium text-slate-300">Contraseña {isRegisterMode && '*'}</label>
                 <div className="mt-1 relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <Shield className="h-5 w-5 text-slate-500" />
                   </div>
-                  <input
-                    type="password"
-                    required
-                    value={passwordInput}
-                    onChange={(e) => setPasswordInput(e.target.value)}
-                    className="appearance-none block w-full pl-10 pr-3 py-2 border border-slate-600 rounded-md shadow-sm bg-[#0A1128] text-white focus:outline-none focus:ring-[#D4AF37] focus:border-[#D4AF37] sm:text-sm"
-                    placeholder="••••••••"
-                  />
+                  <input type="password" required value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)}
+                    className="appearance-none block w-full pl-10 pr-3 py-2.5 border border-slate-600 rounded-md bg-[#0A1128] text-white focus:ring-[#D4AF37] focus:border-[#D4AF37] sm:text-sm" placeholder="••••••••" />
                 </div>
               </div>
 
-              {loginError && (
-                <div className="text-red-400 text-sm text-center bg-red-900/20 p-2 rounded border border-red-900/50">
-                  {loginError}
+              {authMessage.text && (
+                <div className={`text-sm text-center p-2 rounded border ${authMessage.type === 'error' ? 'text-red-400 bg-red-900/20 border-red-900/50' : 'text-green-400 bg-green-900/20 border-green-900/50'}`}>
+                  {authMessage.text}
                 </div>
               )}
 
               <div>
-                <button
-                  type="submit"
-                  disabled={isLoggingIn}
-                  className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-bold text-[#0A1128] bg-gradient-to-r from-[#D4AF37] to-[#C5A059] hover:from-[#C5A059] hover:to-[#8A6D3B] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#D4AF37] transition-all disabled:opacity-70"
-                >
-                  {isLoggingIn ? 'Iniciando sesión...' : 'Ingresar al Portal'}
+                <button type="submit" disabled={isLoading}
+                  className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-lg text-sm font-bold text-[#0A1128] bg-gradient-to-r from-[#D4AF37] to-[#C5A059] hover:from-[#C5A059] hover:to-[#8A6D3B] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#D4AF37] transition-all disabled:opacity-70 mt-4">
+                  {isLoading ? 'Procesando...' : (isRegisterMode ? 'Crear Cuenta Segura' : 'Ingresar al Portal')}
                 </button>
               </div>
             </form>
+
+            <div className="mt-6 text-center border-t border-slate-700 pt-4">
+              <button onClick={() => { setIsRegisterMode(!isRegisterMode); setAuthMessage({type:'', text:''}); }} 
+                className="text-sm text-[#D4AF37] hover:text-white font-medium transition-colors">
+                {isRegisterMode ? '¿Ya tienes una cuenta? Inicia sesión aquí' : '¿Eres nuevo cliente? Solicita tu cuenta aquí'}
+              </button>
+            </div>
+
           </div>
         </div>
       </div>
@@ -178,7 +243,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 flex">
       
       {/* BARRA LATERAL (SIDEBAR) */}
-      <div className="w-64 bg-[#0A1128] text-white flex flex-col border-r border-slate-800">
+      <div className="w-64 bg-[#0A1128] text-white flex flex-col border-r border-slate-800 hidden md:flex">
         <div className="p-6 flex flex-col items-center border-b border-slate-800">
           <AbarisLogo className="w-16 h-16 mb-3" />
           <h1 className="text-lg font-bold text-[#D4AF37] tracking-wider text-center">ABARIS</h1>
@@ -190,8 +255,8 @@ export default function App() {
             <div className="w-10 h-10 rounded-full bg-[#D4AF37] flex items-center justify-center text-[#0A1128] font-bold text-lg">
               {user.name.charAt(0).toUpperCase()}
             </div>
-            <div>
-              <p className="text-sm font-medium text-white">{user.name}</p>
+            <div className="overflow-hidden">
+              <p className="text-sm font-medium text-white truncate">{user.name}</p>
               <p className="text-xs text-slate-400 capitalize">{user.role === 'admin' ? 'Administrador' : 'Cliente'}</p>
             </div>
           </div>
@@ -236,20 +301,34 @@ export default function App() {
       </div>
 
       {/* ÁREA PRINCIPAL (CONTENIDO) */}
-      <div className="flex-1 overflow-auto bg-slate-50 p-8">
+      <div className="flex-1 overflow-auto bg-slate-50 p-4 md:p-8">
         
+        {/* Cabecera Móvil (Solo visible en pantallas pequeñas) */}
+        <div className="md:hidden flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex items-center space-x-3">
+             <AbarisLogo className="w-10 h-10" />
+             <div>
+                <h1 className="text-sm font-bold text-[#0A1128]">{user.name}</h1>
+                <p className="text-xs text-slate-500">{user.role === 'admin' ? 'Administrador' : 'Portal Cliente'}</p>
+             </div>
+          </div>
+          <button onClick={handleLogout} className="p-2 text-red-500 bg-red-50 rounded-lg">
+             <LogOut className="w-5 h-5" />
+          </button>
+        </div>
+
         {/* === VISTAS DEL ADMINISTRADOR === */}
         {user.role === 'admin' && activeTab === 'facturas_admin' && (
           <div className="max-w-6xl mx-auto space-y-6">
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-[#0A1128]">Gestión de Facturas (General)</h2>
+              <h2 className="text-2xl font-bold text-[#0A1128]">Gestión de Facturas</h2>
             </div>
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
               <div className="border-l-4 border-[#D4AF37] pl-4 mb-4">
                 <h3 className="text-lg font-bold text-slate-800">Migración Electrónica y Exportación (DNIT)</h3>
                 <p className="text-sm text-slate-500">Importa facturas de Marangatu o exporta el TXT para la SET.</p>
               </div>
-              <div className="flex gap-4">
+              <div className="flex flex-col md:flex-row gap-4">
                  <button className="flex-1 flex items-center justify-center space-x-2 py-3 border-2 border-dashed border-[#D4AF37] text-[#8A6D3B] rounded-lg hover:bg-[#F9E7B3]/20 bg-white font-medium">
                     <UploadCloud className="w-5 h-5" /> <span>Importar Excel (Marangatu)</span>
                  </button>
@@ -270,32 +349,23 @@ export default function App() {
               <div className="absolute top-0 right-0 p-8 opacity-10"><Receipt className="w-32 h-32" /></div>
               <h3 className="text-lg font-medium text-slate-300 mb-1">Resumen de IVA Estimado</h3>
               <p className="text-4xl font-bold text-[#D4AF37]">{formatCurrency(0)}</p>
-              <div className="mt-4 flex gap-4 text-sm">
+              <div className="mt-4 flex flex-col sm:flex-row gap-2 sm:gap-4 text-sm">
                 <div className="bg-white/10 px-3 py-1.5 rounded text-green-300">Ventas: {formatCurrency(0)}</div>
                 <div className="bg-white/10 px-3 py-1.5 rounded text-red-300">Compras: {formatCurrency(0)}</div>
               </div>
-            </div>
-
-            <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg flex items-start justify-between">
-              <div>
-                <h4 className="text-blue-800 font-bold">Extractos para IVA de Servicios Digitales</h4>
-                <p className="text-sm text-blue-600 mt-1">¿Tienes consumos en Spotify, Netflix u otras plataformas? Sube tu extracto de tarjeta mensual para considerarlo en tu liquidación.</p>
-              </div>
-              <button className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded shadow hover:bg-blue-700">Subir PDF</button>
             </div>
 
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center"><CheckCircle className="w-5 h-5 text-[#D4AF37] mr-2"/> Carga de Comprobante Físico</h3>
                <button className="w-full py-8 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-500 hover:bg-slate-50 hover:border-[#D4AF37] hover:text-[#D4AF37] transition-colors">
                   <UploadCloud className="w-10 h-10 mb-2" />
-                  <span className="font-medium">Haz clic para tomar una foto o subir factura</span>
-                  <span className="text-xs mt-1">El sistema leerá los datos automáticamente</span>
+                  <span className="font-medium text-center px-4">Haz clic para tomar una foto o subir factura</span>
+                  <span className="text-xs mt-1">El sistema la procesará automáticamente</span>
                </button>
             </div>
           </div>
         )}
 
-        {/* Pestaña de Bóveda (Ejemplo visual rápido) */}
         {user.role === 'client' && activeTab === 'boveda' && (
            <div className="max-w-5xl mx-auto space-y-6">
              <h2 className="text-2xl font-bold text-[#0A1128]">Mi Bóveda de Documentos</h2>
@@ -305,9 +375,9 @@ export default function App() {
                   <div key={doc} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
                      <div className="flex items-center space-x-3">
                         <div className="bg-[#D4AF37]/20 p-3 rounded-lg text-[#8A6D3B]"><Shield className="w-6 h-6" /></div>
-                        <span className="font-semibold text-slate-700">{doc}</span>
+                        <span className="font-semibold text-slate-700 text-sm md:text-base">{doc}</span>
                      </div>
-                     <button className="text-sm text-[#0A1128] font-bold underline hover:text-[#D4AF37]">Descargar</button>
+                     <button className="text-sm text-[#0A1128] font-bold underline hover:text-[#D4AF37]">Ver</button>
                   </div>
                 ))}
              </div>
