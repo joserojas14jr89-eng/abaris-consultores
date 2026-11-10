@@ -444,52 +444,86 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
   }, [invoices, filterMonth]);
 
   const handleCaptureClick = () => { fileInputRef.current.click(); };
+
+  // Compresión y normalización a JPEG para imágenes tomadas desde celulares (iOS/Android)
+  const resizeAndCompressImage = (file) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxDim = 1280;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height && width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          const base64 = dataUrl.split(',')[1];
+          resolve(base64);
+        };
+      };
+    });
+  };
   
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setIsProcessingFile(true); 
     setUploadMessage({ type: '', text: '', source: '' });
     
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = async () => {
-      const base64 = reader.result.split(',')[1];
+    try {
+      const base64 = await resizeAndCompressImage(file);
       
-      try {
-        const resOcr = await apiCall('processOCR', { 
-          fileBase64: base64,
-          clientRuc: user.ruc || '' 
+      const resOcr = await apiCall('processOCR', { 
+        fileBase64: base64,
+        mimeType: 'image/jpeg',
+        clientRuc: user.ruc || '' 
+      });
+      
+      if (resOcr && resOcr.status === 'success' && resOcr.data && resOcr.data.monto > 0) {
+        const d = resOcr.data;
+        setOcrData({
+          ruc: d.ruc || '', 
+          razonSocial: d.razonSocial || '', 
+          fecha: d.fecha || new Date().toISOString().split('T')[0], 
+          tipo: 'Gasto', 
+          monto: String(d.monto), 
+          iva5: String(d.iva5 || '0'), 
+          iva10: String(d.iva10 || ''),
+          fileBase64: base64, 
+          fileName: `${new Date().getTime()}_factura.jpg`, 
+          mimeType: 'image/jpeg'
         });
-        
-        if (resOcr && resOcr.status === 'success' && resOcr.data) {
-          const d = resOcr.data;
-          setOcrData({
-            ruc: d.ruc || '', 
-            razonSocial: d.razonSocial || '', 
-            fecha: d.fecha || new Date().toISOString().split('T')[0], 
-            tipo: 'Gasto', 
-            monto: d.monto ? String(d.monto) : '', 
-            iva5: d.iva5 ? String(d.iva5) : '0', 
-            iva10: d.iva10 ? String(d.iva10) : '',
-            fileBase64: base64, 
-            fileName: `${new Date().getTime()}_${file.name}`, 
-            mimeType: file.type
-          });
-        } else {
-          setOcrData({
-            ruc: '', razonSocial: '', fecha: new Date().toISOString().split('T')[0],
-            tipo: 'Gasto', monto: '', iva5: '0', iva10: '',
-            fileBase64: base64, fileName: `${new Date().getTime()}_${file.name}`, mimeType: file.type
-          });
-        }
-      } catch (err) {
-        console.error("Error OCR:", err);
+      } else {
+        setOcrData({
+          ruc: (resOcr?.data?.ruc) || '', 
+          razonSocial: (resOcr?.data?.razonSocial) || '', 
+          fecha: new Date().toISOString().split('T')[0],
+          tipo: 'Gasto', monto: '', iva5: '0', iva10: '',
+          fileBase64: base64, fileName: `${new Date().getTime()}_factura.jpg`, mimeType: 'image/jpeg'
+        });
       }
+    } catch (err) {
+      console.error("Error OCR:", err);
+    }
 
-      setIsProcessingFile(false);
-      setShowOcrPreview(true);
-    };
+    setIsProcessingFile(false);
+    setShowOcrPreview(true);
   };
 
   const submitOcrForm = async (e) => {
