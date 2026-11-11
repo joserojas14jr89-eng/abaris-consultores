@@ -445,41 +445,45 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
 
   const handleCaptureClick = () => { fileInputRef.current.click(); };
 
-  // Compresión y normalización a JPEG para imágenes tomadas desde celulares (iOS/Android)
+  // ==============================================================
+  // COMPRESIÓN Y DIAGNÓSTICO (NUEVO BLOQUE PARA VER ERRORES)
+  // ==============================================================
   const resizeAndCompressImage = (file) => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.onerror = () => reject(new Error("No se pudo leer la foto en el celular."));
       reader.readAsDataURL(file);
       reader.onload = (event) => {
         const img = new Image();
+        img.onerror = () => reject(new Error("El celular bloqueó el renderizado de la imagen."));
         img.src = event.target.result;
         img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const maxDim = 1280;
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height && width > maxDim) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else if (height > maxDim) {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
+          try {
+            const canvas = document.createElement('canvas');
+            const maxDim = 1200;
+            let width = img.width;
+            let height = img.height;
+            if (width > height && width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            resolve(dataUrl.split(',')[1]);
+          } catch(e) {
+            reject(new Error("Error al comprimir: " + e.message));
           }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-          
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-          const base64 = dataUrl.split(',')[1];
-          resolve(base64);
         };
       };
     });
   };
-  
+
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -495,6 +499,15 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
         clientRuc: user.ruc || '' 
       });
       
+      // DIAGNÓSTICO: Si algo falla, salta una alerta.
+      if (resOcr.status === 'error') {
+        alert("FALLO DE CONEXIÓN CON APPS SCRIPT:\n" + resOcr.message);
+      } else if (resOcr.data && resOcr.data.error) {
+        alert("ERROR EN GOOGLE GEMINI:\n" + JSON.stringify(resOcr.data.error).substring(0, 150));
+      } else if (resOcr.data && resOcr.data.monto === 0) {
+        alert("LA IA LEYÓ PERO NO ENCONTRÓ MONTO.\nDatos extraídos: " + JSON.stringify(resOcr.data));
+      }
+
       if (resOcr && resOcr.status === 'success' && resOcr.data && resOcr.data.monto > 0) {
         const d = resOcr.data;
         setOcrData({
@@ -519,12 +532,13 @@ function ClientPanel({ user, onLogout, cobranzas, invoices, refreshData }) {
         });
       }
     } catch (err) {
-      console.error("Error OCR:", err);
+      alert("ERROR EN EL CELULAR: " + err.message);
     }
 
     setIsProcessingFile(false);
     setShowOcrPreview(true);
   };
+  // ==============================================================
 
   const submitOcrForm = async (e) => {
     e.preventDefault(); setIsSavingOcr(true);
